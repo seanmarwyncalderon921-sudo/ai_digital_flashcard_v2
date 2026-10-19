@@ -333,7 +333,9 @@ getElement("generate").addEventListener("click", async () => {
     cards = data.cards;
     i = 0;
     getElement("study").classList.remove("hidden");
-    getElement("status").textContent = `Done! ${cards.length} cards ready.`;
+    getElement("status").textContent = cards.length < Number(count)
+      ? `Done! ${cards.length} unique cards ready. The source may not support ${count} distinct cards without repetition.`
+      : `Done! ${cards.length} cards ready.`;
     show();
   } catch (err) {
     getElement("status").textContent = "Error: " + err.message;
@@ -360,10 +362,12 @@ function show() {
   const trueFalseMatch = questionLines[0]?.match(/^\s*(?:true\s+or\s+false|true\s*\/\s*false|t\s*\/\s*f)\s*[:.)-]?\s*(.+)$/i);
   const isTrueFalse = cards[i].type === "true-false" || Boolean(trueFalseMatch);
   const isMultipleChoice = cards[i].type === "multiple-choice" || firstOptionIndex !== -1;
+  const isLongQuestion = cards[i].question.length > 260 || questionLines.length > 7;
 
   front.replaceChildren();
   front.classList.toggle("multiple-choice", isMultipleChoice);
   front.classList.toggle("true-false", isTrueFalse);
+  front.classList.toggle("long-content", isLongQuestion);
 
   if (isTrueFalse) {
     const question = document.createElement("div");
@@ -481,6 +485,9 @@ function show() {
 
   const back = getElement("back");
   back.replaceChildren();
+  const answerLength = cards[i].answer.length + (cards[i].explanation?.length || 0);
+  const answerLineCount = cards[i].answer.split(/\r?\n/).length;
+  back.classList.toggle("long-content", answerLength > 260 || answerLineCount > 7);
   const answerText = document.createElement("div");
   answerText.className = "answer-result";
   answerText.textContent = cards[i].answer;

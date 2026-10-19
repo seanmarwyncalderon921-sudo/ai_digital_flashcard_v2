@@ -57,14 +57,14 @@ function parseFlashcards(responseText) {
   return data;
 }
 
-async function generateWithGroq(messages) {
+async function generateWithGroq(messages, temperature = 0.5) {
   if (!process.env.GROQ_API_KEY) throw missingKeyError('GROQ_API_KEY');
   const groq = new Groq({ apiKey: process.env.GROQ_API_KEY });
   const completion = await groq.chat.completions.create({
     messages,
     model: process.env.GROQ_MODEL || 'qwen/qwen3.8-27b',
     response_format: { type: 'json_object' },
-    temperature: 0.5
+    temperature
   });
   const responseText = completion.choices?.[0]?.message?.content;
   if (!responseText) throw new Error('Groq returned an empty response.');
@@ -75,6 +75,10 @@ app.post('/api/flashcards', async (req, res) => {
   const { notes, count, images, image, mimeType, gradeLevel, academicStrand, difficulty } = req.body;
 
   try {
+    const parsedCount = Number.parseInt(count, 10);
+    const requestedCount = Number.isInteger(parsedCount) && parsedCount > 0
+      ? Math.min(parsedCount, 50)
+      : 10;
     const requestedDifficulty = String(difficulty || 'medium').toLowerCase();
     const difficultyLevel = ['easy', 'medium', 'hard'].includes(requestedDifficulty)
       ? requestedDifficulty
@@ -89,12 +93,16 @@ app.post('/api/flashcards', async (req, res) => {
       medium: 'Use Multiple Choice, True/False, and Identification in roughly equal shares. Do not force Enumeration into this level.',
       hard: 'Keep the deck varied: use Enumeration for about one-third of cards, and split the remaining cards as evenly as possible among Multiple Choice, True/False, and Identification. Include all four formats when at least four cards are requested; Enumeration must not dominate the deck.'
     }[difficultyLevel];
+    const diversityGuidance = requestedCount >= 20
+      ? 'This is a large deck. Before drafting, make a private coverage list of distinct facts from every note and image, then assign one different fact or concept to each card. Do not test the same fact twice in different formats. Vary both the subject matter and question wording.'
+      : 'Give each card a distinct fact or concept. Avoid duplicate facts and vary question wording.';
 
-    let systemInstructions = "You are an expert academic reviewer. Generate exactly " + (count || 10) + " structured study flashcards.\n" +
+    let systemInstructions = "You are an expert academic reviewer. Generate " + requestedCount + " structured study flashcards when the source supports that many unique facts.\n" +
                              "Target Level: " + (gradeLevel || 'Senior High School') + "\n" +
                              "Target Track/Strand: " + (academicStrand || 'General') + "\n\n" +
                              "Target Difficulty: " + difficultyLevel + ". " + difficultyGuidance + "\n\n" +
                              "Card type mix for this difficulty: " + difficultyCardMix + "\n\n" +
+                             "Coverage and variety: " + diversityGuidance + " If the material does not support " + requestedCount + " distinct, accurate cards, return fewer cards rather than repeat facts or invent content.\n\n" +
                              "CRITICAL FORMAT RULES:\n" +
                              "1. Follow the card type mix for the selected difficulty. Do not force every card type into every deck when it conflicts with that mix.\n" +
                              "2. For Multiple Choice, put the question and options A, B, C, and D in the \"question\" string on separate lines, and make \"answer\" the correct option string.\n" +
@@ -149,7 +157,7 @@ app.post('/api/flashcards', async (req, res) => {
       });
     }
 
-    const parsedData = await generateWithGroq(messages);
+    const parsedData = await generateWithGroq(messages, requestedCount >= 20 ? 0.65 : 0.5);
     res.json(parsedData);
 
   } catch (error) {
